@@ -7,50 +7,22 @@ import (
 	"crypto/rand"
 	"log"
 	"net/http"
-	"os"
+
+	"xiaofang.me/gomod/awsshared"
 
 	"golang.org/x/crypto/scrypt"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
-var password = ""
-
-var symmetryKeyHex = "6D795F766572795F703077657246756C215F736563526554"
-
-type S3SessionConfig struct {
-	S3_REGION   string
-	S3_BUCKET   string
-	session     *session.Session
-	aesPassword []byte
+type S3Config struct {
+	S3_BUCKET string
 }
 
-func GetSession(s3Bucket string, rawPassword string) S3SessionConfig {
-	AWS_REGION := os.Getenv("AWS_REGION")
+func Save(s3Config S3Config, AWSSession awsshared.AWSSession, fileDir string, buffer []byte) {
 
-	creds := credentials.NewChainCredentials(
-		[]credentials.Provider{
-			&credentials.EnvProvider{},
-		})
-	s, err := session.NewSession(&aws.Config{
-		Region:      aws.String(AWS_REGION),
-		Credentials: creds,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return S3SessionConfig{AWS_REGION, s3Bucket, s, []byte(rawPassword)}
-}
-
-func Save(s3Config S3SessionConfig, fileDir string, buffer []byte) {
-
-	// Config settings: this is where you choose the bucket, filename, content-type etc.
-	// of the file you're uploading.
-	_, err := s3.New(s3Config.session).PutObject(&s3.PutObjectInput{
+	_, err := s3.New(AWSSession.SESSION).PutObject(&s3.PutObjectInput{
 		Bucket:               aws.String(s3Config.S3_BUCKET),
 		Key:                  aws.String(fileDir),
 		Body:                 bytes.NewReader(buffer),
@@ -66,9 +38,9 @@ func Save(s3Config S3SessionConfig, fileDir string, buffer []byte) {
 	}
 }
 
-func Fetch(s3Config S3SessionConfig, fileDir string) []byte {
+func Fetch(s3Config S3Config, AWSSession awsshared.AWSSession, fileDir string) []byte {
 
-	svc := s3.New(s3Config.session, &aws.Config{
+	svc := s3.New(AWSSession.SESSION, &aws.Config{
 		DisableRestProtocolURICleaning: aws.Bool(true),
 	})
 	// out: https://docs.aws.amazon.com/sdk-for-go/api/service/s3/#GetObjectOutput
@@ -88,10 +60,10 @@ func Fetch(s3Config S3SessionConfig, fileDir string) []byte {
 	return newBytes
 }
 
-func Encrypt(s3SessionConfig S3SessionConfig, plaintext string) []byte {
+func Encrypt(aesPassword string, plaintext string) []byte {
 
 	data := []byte(plaintext)
-	key, salt, err := DeriveKey(s3SessionConfig.aesPassword, nil)
+	key, salt, err := DeriveKey(aesPassword, nil)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -112,10 +84,10 @@ func Encrypt(s3SessionConfig S3SessionConfig, plaintext string) []byte {
 	return ciphertext
 }
 
-func Decrypt(s3SessionConfig S3SessionConfig, data []byte) string {
+func Decrypt(aesPassword string, data []byte) string {
 
 	salt, data := data[len(data)-32:], data[:len(data)-32]
-	key, _, err := DeriveKey(s3SessionConfig.aesPassword, salt)
+	key, _, err := DeriveKey(aesPassword, salt)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -136,14 +108,14 @@ func Decrypt(s3SessionConfig S3SessionConfig, data []byte) string {
 
 }
 
-func DeriveKey(password, salt []byte) ([]byte, []byte, error) {
+func DeriveKey(password string, salt []byte) ([]byte, []byte, error) {
 	if salt == nil {
 		salt = make([]byte, 32)
 		if _, err := rand.Read(salt); err != nil {
 			return nil, nil, err
 		}
 	}
-	key, err := scrypt.Key(password, salt, 1048576, 8, 1, 32)
+	key, err := scrypt.Key([]byte(password), salt, 1048576, 8, 1, 32)
 	if err != nil {
 		return nil, nil, err
 	}
