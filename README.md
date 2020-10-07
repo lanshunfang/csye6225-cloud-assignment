@@ -2,8 +2,9 @@
 
 ## Save encrypted data in AWS S3
 ```bash
-cd diffiehellman
+cd encrypts3
 go test
 ```
-![](doc/images/2020-10-06-17-05-58.png)
+![](doc/images/2020-10-06-22-04-54.png)
+![](doc/images/2020-10-06-22-05-35.png)
 
